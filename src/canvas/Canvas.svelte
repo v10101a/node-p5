@@ -25,6 +25,7 @@
   let hiddenEdge = $state(null);
   let resizing = $state.raw({});
   let panning = $state(false);
+  let dragging = $state(false); // an item drag in progress: closed-hand cursor
 
   const graph = $derived(live.graph);
   const view = $derived(ui.view);
@@ -269,6 +270,7 @@
         const dx = w.x - d.start.x, dy = w.y - d.start.y;
         if (!d.moved && Math.hypot(dx, dy) * ui.view.k < 3) return;
         d.moved = true;
+        dragging = true;
         const pos = {};
         for (const id of d.ids) pos[id] = { x: d.init[id].x + dx, y: d.init[id].y + dy };
         local = pos;
@@ -340,6 +342,7 @@
     const d = drag;
     drag = null;
     panning = false;
+    dragging = false;
     marquee = null;
     liveWire = null;
     wireHint = null;
@@ -482,7 +485,7 @@
 <svelte:window onkeydown={onKey} onkeyup={onKeyUp} />
 <svelte:document oncopy={onCopy} oncut={onCut} onpaste={onPaste} />
 
-<div bind:this={root} class="canvas" class:wiring={!!wireHint} class:panning
+<div bind:this={root} class="canvas" class:wiring={!!wireHint} class:panning class:dragging
   onpointerdown={onPointerDown} onpointermove={onPointerMove} onpointerup={onPointerUp} onpointercancel={onPointerUp}
   oncontextmenu={onContextMenu} onpointerleave={() => S.setCursor(null)}
   style:background-position="{view.x}px {view.y}px" style:background-size="{24 * view.k}px {24 * view.k}px">
