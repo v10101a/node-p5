@@ -1,0 +1,5 @@
+node_modules
+dist
+data
+public/p5.min.js
+.DS_Store

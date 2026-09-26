@@ -1,0 +1,33 @@
+{
+  "name": "node-p5",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "build": "vite build",
+    "start": "NODE_ENV=production node server.js",
+    "typecheck": "tsc --noEmit",
+    "prepare": "node -e \"require('fs').mkdirSync('public',{recursive:true});require('fs').copyFileSync('node_modules/p5/lib/p5.min.js','public/p5.min.js')\""
+  },
+  "dependencies": {
+    "acorn": "^8.18.0",
+    "p5": "^2.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "sirv": "^3.0.0",
+    "ws": "^8.18.0",
+    "y-indexeddb": "^9.0.12",
+    "y-protocols": "^1.0.6",
+    "y-websocket": "^3.0.0",
+    "yjs": "^13.6.20"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/ws": "^8.5.13",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}
