@@ -1,8 +1,8 @@
-import * as S from './store';
-import { planFromCode } from './decompile';
+import * as S from './store.js';
+import { planFromCode } from './decompile.js';
 
 /** replace the shared patch with what the code says, keeping unchanged nodes in place */
-export function applyCode(code: string): { ok: true } | { ok: false; error: string } {
+export function applyCode(code) {
   try {
     S.ensureCanvas();
     const g = S.getGraph();
@@ -14,7 +14,7 @@ export function applyCode(code: string): { ok: true } | { ok: false; error: stri
       S.replaceEdges(plan.edges);
     });
     return { ok: true };
-  } catch (e: any) {
+  } catch (e) {
     const msg = String(e?.message ?? e);
     return { ok: false, error: e?.loc ? `line ${e.loc.line}: ${msg.replace(/\s*\(\d+:\d+\)$/, '')}` : msg };
   }

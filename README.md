@@ -80,12 +80,16 @@ first matching input · `N` note · `G` group selection · `F` fit · `⌘Z` / `
 
 ## Layout
 
+Plain JavaScript and Svelte 5, no TypeScript. Vite is the only build tool, and only because
+Svelte components need compiling. The sketch itself runs unbundled from a `<script>` tag.
+
 ```
-server.js            websocket relay (y-protocols) + Vite in dev / static in prod
-src/compile.ts       graph → sketch.js
-src/decompile.ts     sketch.js → graph (best effort, code blocks for the rest)
-src/nodes/defs.ts    the node library: ports + a compile rule per node
-src/store.ts         Yjs doc, awareness, undo, all mutations, import/export
-src/canvas/*         the canvas: nodes, wires, notes, groups, cursors, minimap
-src/runtime/frame.ts the iframe that runs the sketch
+server.js              websocket relay (y-protocols) + Vite in dev / static files in prod
+src/compile.js         graph → sketch.js
+src/decompile.js       sketch.js → graph (best effort, code blocks for the rest)
+src/nodes/defs.js      the node library: ports + a compile rule per node
+src/store.js           Yjs doc, awareness, undo, all mutations, import/export
+src/state.svelte.js    reactive view of the doc + UI state for components
+src/canvas/*.svelte    the canvas: nodes, wires, notes, groups, cursors, minimap, widgets
+src/runtime/frame.js   the iframe that runs the sketch
 ```

@@ -1,37 +1,35 @@
-import type { NodeDef, PortDef, CompileCtx } from '../types';
-
 // ---------- port helpers ----------
-const num = (name: string, def = 0, extra: Partial<PortDef> = {}): PortDef => ({
+const num = (name, def = 0, extra = {}) => ({
   name, type: 'number', default: def, widget: 'number', ...extra,
 });
-const col = (name: string, def: [number, number, number, number] | null, extra: Partial<PortDef> = {}): PortDef => ({
+const col = (name, def, extra = {}) => ({
   name, type: 'color', default: def, widget: 'color', ...extra,
 });
-const bool = (name: string, def = false): PortDef => ({ name, type: 'boolean', default: def, widget: 'bool' });
-const trig = (name: string): PortDef => ({ name, type: 'trigger', default: false, widget: 'none' });
-const vec = (name: string): PortDef => ({ name, type: 'vector', default: { x: 0, y: 0 }, widget: 'vector' });
-const drawIn: PortDef = { name: 'draw', type: 'draw', variadic: true };
-const drawOut: PortDef = { name: 'out', type: 'draw', label: 'draw' };
-const out = (name: string, type: PortDef['type'], label?: string): PortDef => ({ name, type, label });
+const bool = (name, def = false) => ({ name, type: 'boolean', default: def, widget: 'bool' });
+const trig = (name) => ({ name, type: 'trigger', default: false, widget: 'none' });
+const vec = (name) => ({ name, type: 'vector', default: { x: 0, y: 0 }, widget: 'vector' });
+const drawIn = { name: 'draw', type: 'draw', variadic: true };
+const drawOut = { name: 'out', type: 'draw', label: 'draw' };
+const out = (name, type, label) => ({ name, type, label });
 
 const styleIn = [col('fill', [255, 110, 90, 255]), col('stroke', null), num('weight', 1, { min: 0, max: 40, step: 0.5 })];
 
 /** the argument list for fill()/stroke()/background(): `220`, `255, 0, 0`, an expression, or a variable. null = none */
-export function colorArgs(c: CompileCtx, port: string): string | null {
+export function colorArgs(c, port) {
   if (c.connected(port)) return c.in(port);
   const v = c.raw(port);
   if (v === null || v === undefined) return null;
   if (typeof v === 'string') return v.trim() || null;
   if (Array.isArray(v)) {
-    const [r, g, b, a] = v.map((x: number) => Math.round(x));
+    const [r, g, b, a] = v.map((x) => Math.round(x));
     const rgb = r === g && g === b ? `${r}` : `${r}, ${g}, ${b}`;
     return a === undefined || a === 255 ? rgb : `${rgb}, ${a}`;
   }
   return null;
 }
 
-function styleLines(c: CompileCtx, T: string, opts: { fill?: boolean; stroke?: boolean } = {}): string[] {
-  const lines: string[] = [];
+function styleLines(c, T, opts = {}) {
+  const lines = [];
   if (opts.fill !== false) {
     const f = colorArgs(c, 'fill');
     lines.push(f === null ? `${T}noFill();` : `${T}fill(${f});`);
@@ -47,14 +45,13 @@ function styleLines(c: CompileCtx, T: string, opts: { fill?: boolean; stroke?: b
   return lines;
 }
 
-const timeExpr = (c: CompileCtx) => (c.connected('t') ? c.in('t') : 'millis() / 1000');
-const int = (c: CompileCtx, port: string) => {
+const timeExpr = (c) => (c.connected('t') ? c.in('t') : 'millis() / 1000');
+const int = (c, port) => {
   if (c.connected(port) || typeof c.raw(port) === 'string') return `Math.round(${c.in(port)})`;
   return String(Math.round(Number(c.raw(port) ?? 0)));
 };
-
 // ---------- helpers emitted into the sketch when used ----------
-export const HELPERS: Record<string, string> = {
+export const HELPERS = {
   hsb: `function hsbColor(h, s, b, a = 255) {
   h = ((h % 360) + 360) % 360; s = constrain(s, 0, 100) / 100; b = constrain(b, 0, 100) / 100;
   const k = (n) => (n + h / 60) % 6;
@@ -78,10 +75,9 @@ export const HELPERS: Record<string, string> = {
   return typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(2)) : String(v);
 }`,
 };
-
 // ---------- the library ----------
-export const NODE_DEFS: NodeDef[] = [
-  // ===== inputs =====
+export const NODE_DEFS = [
+// ===== inputs =====
   {
     type: 'number', label: 'Number', category: 'input', description: 'A constant with a slider.',
     inputs: [], outputs: [out('out', 'number')],
@@ -89,7 +85,7 @@ export const NODE_DEFS: NodeDef[] = [
       { name: 'value', widget: 'number', default: 50 },
       { name: 'min', widget: 'number', default: 0 },
       { name: 'max', widget: 'number', default: 100 },
-    ],
+],
     compile: (c) => ({ values: { out: fmtNum(c.param('value') ?? 0) } }),
   },
   {
@@ -140,13 +136,13 @@ export const NODE_DEFS: NodeDef[] = [
     inputs: [
       { name: 't', type: 'number', widget: 'none', label: 'time (auto)' },
       num('freq', 0.5, { step: 0.05, min: 0 }), num('amp', 100), num('offset', 0), num('phase', 0, { step: 0.05 }),
-    ],
+],
     outputs: [out('out', 'number')],
     params: [{ name: 'shape', widget: 'select', options: ['sine', 'triangle', 'saw', 'square'], default: 'sine' }],
     compile: (c) => {
       const x = `${timeExpr(c)} * ${c.in('freq')}${c.isDefault('phase') ? '' : ` + ${c.in('phase')}`}`;
       const shape = c.param('shape') ?? 'sine';
-      let w: string;
+      let w;
       if (shape === 'sine') w = `sin((${x}) * TWO_PI)`;
       else { c.helper('wave'); w = `waveform('${shape}', ${x})`; }
       const amp = c.in('amp') === '1' ? w : `${w} * ${c.in('amp')}`;
@@ -161,15 +157,14 @@ export const NODE_DEFS: NodeDef[] = [
       return { pre: [`const ${c.v('tick')} = millis() - ${c.gid}_last >= ${c.in('interval')} * 1000;`, `if (${c.v('tick')}) ${c.gid}_last = millis();`] };
     },
   },
-
-  // ===== math =====
+// ===== math =====
   {
     type: 'math', label: 'Math', category: 'math', description: 'a (op) b',
     inputs: [num('a', 0), num('b', 1)], outputs: [out('out', 'number')],
     params: [{ name: 'op', widget: 'select', options: ['+', '-', '×', '÷', '%', 'pow', 'min', 'max', 'atan2'], default: '+' }],
     compile: (c) => {
       const a = c.in('a'), b = c.in('b'), op = c.param('op') ?? '+';
-      const e: Record<string, string> = {
+      const e = {
         '+': `${a} + ${b}`, '-': `${a} - ${b}`, '×': `${a} * ${b}`, '÷': `${a} / ${b}`, '%': `${a} % ${b}`,
         pow: `pow(${a}, ${b})`, min: `min(${a}, ${b})`, max: `max(${a}, ${b})`, atan2: `atan2(${a}, ${b})`,
       };
@@ -182,7 +177,7 @@ export const NODE_DEFS: NodeDef[] = [
     params: [{ name: 'fn', widget: 'select', options: ['sin', 'cos', 'tan', 'abs', 'floor', 'ceil', 'round', 'sqrt', 'sq', 'fract', 'sign', 'negate', 'radians', 'degrees'], default: 'sin' }],
     compile: (c) => {
       const a = c.in('a'), f = c.param('fn') ?? 'sin';
-      const e: Record<string, string> = { sign: `Math.sign(${a})`, negate: `-(${a})` };
+      const e = { sign: `Math.sign(${a})`, negate: `-(${a})` };
       return { values: { out: e[f] ?? `${f}(${a})` } };
     },
   },
@@ -212,7 +207,7 @@ export const NODE_DEFS: NodeDef[] = [
     inputs: [num('a', 0), num('b', 0)], outputs: [out('out', 'boolean')],
     params: [{ name: 'op', widget: 'select', options: ['<', '>', '≤', '≥', '=', '≠'], default: '<' }],
     compile: (c) => {
-      const ops: Record<string, string> = { '<': '<', '>': '>', '≤': '<=', '≥': '>=', '=': '===', '≠': '!==' };
+      const ops = { '<': '<', '>': '>', '≤': '<=', '≥': '>=', '=': '===', '≠': '!==' };
       return { values: { out: `${c.in('a')} ${ops[c.param('op') ?? '<']} ${c.in('b')}` } };
     },
   },
@@ -227,7 +222,7 @@ export const NODE_DEFS: NodeDef[] = [
     params: [
       { name: 'expr', widget: 'text', default: 'mouseX / width' },
       { name: 'kind', widget: 'select', options: ['number', 'color', 'vector', 'boolean'], default: 'number' },
-    ],
+],
     width: 220,
     compile: (c) => {
       const outs = c.node.ports?.outputs ?? [{ name: 'out' }];
@@ -240,7 +235,7 @@ export const NODE_DEFS: NodeDef[] = [
     inputs: [trig('trigger'), num('step', 1), trig('reset')], outputs: [out('count', 'number')],
     compile: (c) => {
       c.addGlobal(`let ${c.gid}_n = 0;`);
-      const pre: string[] = [];
+      const pre = [];
       if (c.connected('reset')) pre.push(`if (${c.in('reset')}) ${c.gid}_n = 0;`);
       pre.push(`if (${c.in('trigger')}) ${c.gid}_n += ${c.in('step')};`);
       return { pre, values: { count: `${c.gid}_n` } };
@@ -259,8 +254,7 @@ export const NODE_DEFS: NodeDef[] = [
     inputs: [vec('vec')], outputs: [out('x', 'number'), out('y', 'number')],
     compile: (c) => ({ values: { x: `${c.in('vec')}.x`, y: `${c.in('vec')}.y` } }),
   },
-
-  // ===== color =====
+// ===== color =====
   {
     type: 'hsb', label: 'HSB color', category: 'color', description: 'Hue 0–360, saturation & brightness 0–100.',
     inputs: [num('h', 200, { min: 0, max: 360 }), num('s', 80, { min: 0, max: 100 }), num('b', 100, { min: 0, max: 100 }), num('a', 255, { min: 0, max: 255 })],
@@ -279,8 +273,7 @@ export const NODE_DEFS: NodeDef[] = [
     outputs: [out('out', 'color')],
     compile: (c) => { c.helper('mix'); return { values: { out: `mixColors(${c.in('a')}, ${c.in('b')}, ${c.in('t')})` } }; },
   },
-
-  // ===== draw =====
+// ===== draw =====
   {
     type: 'background', label: 'Background', category: 'draw', description: 'Fill the whole canvas with a color.',
     inputs: [col('color', [250, 246, 238, 255])], outputs: [drawOut],
@@ -299,7 +292,7 @@ export const NODE_DEFS: NodeDef[] = [
           ...(center ? [`${T}rectMode(CENTER);`] : []),
           `${T}rect(${c.arg('x')}, ${c.arg('y')}, ${c.arg('w')}, ${c.arg('h')}${r});`,
           ...(center ? [`${T}rectMode(CORNER);`] : []),
-        ];
+];
       },
     }),
   },
@@ -335,7 +328,7 @@ export const NODE_DEFS: NodeDef[] = [
           `  ${T}vertex(${c.in('x')} + cos(ang) * ${c.in('radius')}, ${c.in('y')} + sin(ang) * ${c.in('radius')});`,
           `}`,
           `${T}endShape(CLOSE);`,
-        ];
+];
       },
     }),
   },
@@ -346,7 +339,7 @@ export const NODE_DEFS: NodeDef[] = [
     params: [
       { name: 'text', widget: 'text', default: 'hello' },
       { name: 'align', widget: 'select', options: ['left', 'center', 'right'], default: 'left' },
-    ],
+],
     width: 220,
     compile: (c) => ({
       draw: (T) => {
@@ -358,7 +351,7 @@ export const NODE_DEFS: NodeDef[] = [
           `${T}textSize(${c.arg('size')});`,
           `${T}textAlign(${align.toUpperCase()}, BASELINE);`,
           `${T}text(${content}, ${c.arg('x')}, ${c.arg('y')});`,
-        ];
+];
       },
     }),
   },
@@ -375,8 +368,7 @@ export const NODE_DEFS: NodeDef[] = [
       },
     }),
   },
-
-  // ===== compose =====
+// ===== compose =====
   {
     type: 'layers', label: 'Layers', category: 'compose', description: 'Stack drawings in order, top port first.',
     inputs: [drawIn], outputs: [drawOut],
@@ -408,7 +400,7 @@ export const NODE_DEFS: NodeDef[] = [
         if (!inner.length) return [];
         const n = int(c, 'count');
         const radial = c.param('mode') === 'radial';
-        const step: string[] = [];
+        const step = [];
         if (radial) step.push(`${T}rotate(TWO_PI / ${n});`);
         else {
           if (!(c.isDefault('x') && c.isDefault('y'))) step.push(`${T}translate(${c.arg('x')}, ${c.arg('y')});`);
@@ -426,7 +418,7 @@ export const NODE_DEFS: NodeDef[] = [
       const v = c.v('out');
       c.addGlobal(`let ${v};`);
       c.addSetup(`${v} = createGraphics(${c.in('w')}, ${c.in('h')});`);
-      const stmts: string[] = [];
+      const stmts = [];
       if (c.connected('w') || c.connected('h')) {
         stmts.push(`if (${v}.width !== Math.round(${c.in('w')}) || ${v}.height !== Math.round(${c.in('h')})) { ${v}.remove(); ${v} = createGraphics(${c.in('w')}, ${c.in('h')}); }`);
       }
@@ -435,15 +427,14 @@ export const NODE_DEFS: NodeDef[] = [
       return { stmts };
     },
   },
-
-  // ===== custom =====
+// ===== custom =====
   {
     type: 'code', label: 'Code', category: 'custom', description: 'A JS function of the inputs. Return the output value.',
     inputs: [], outputs: [],
     params: [
       { name: 'ports', widget: 'ports', default: { inputs: [num('a', 0), num('b', 0)], outputs: [out('out', 'number')] } },
       { name: 'code', widget: 'code', default: 'return a + b;' },
-    ],
+],
     width: 260,
     compile: (c) => {
       const ins = c.node.ports?.inputs ?? [];
@@ -451,7 +442,7 @@ export const NODE_DEFS: NodeDef[] = [
       const body = String(c.param('code') ?? '').split('\n').map((l) => '  ' + l).join('\n');
       const call = `((${ins.map((p) => p.name).join(', ')}) => {\n${body}\n})(${ins.map((p) => c.in(p.name)).join(', ')})`;
       if (outs.length === 1) return { values: { [outs[0].name]: call } };
-      const values: Record<string, string> = {};
+      const values = {};
       for (const o of outs) values[o.name] = `${c.gid}_r.${o.name}`;
       return { pre: [`const ${c.gid}_r = ${call} || {};`], values };
     },
@@ -468,8 +459,7 @@ export const NODE_DEFS: NodeDef[] = [
       },
     }),
   },
-
-  // ===== output =====
+// ===== output =====
   {
     type: 'canvas', label: 'Canvas', category: 'output', description: 'The sketch. Drawings connected here are drawn in port order.',
     inputs: [drawIn], outputs: [],
@@ -478,36 +468,35 @@ export const NODE_DEFS: NodeDef[] = [
       { name: 'height', widget: 'number', default: 400 },
       { name: 'globals', label: 'globals', widget: 'code', default: '' },
       { name: 'setup', label: 'setup', widget: 'code', default: '' },
-    ],
+],
     singleton: true,
     compile: (c) => {
-      const dim = (k: string, d: number) => { const v = c.param(k) ?? d; return typeof v === 'string' ? v : String(Math.round(Number(v))); };
+      const dim = (k, d) => { const v = c.param(k) ?? d; return typeof v === 'string' ? v : String(Math.round(Number(v))); };
       c.addSetup(`${c.live ? '__canvas' : 'createCanvas'}(${dim('width', 600)}, ${dim('height', 400)});`);
       return { stmts: c.drawInputs('draw', '') };
     },
   },
 ];
 
-export const DEFS: Record<string, NodeDef> = Object.fromEntries(NODE_DEFS.map((d) => [d.type, d]));
-
+export const DEFS = Object.fromEntries(NODE_DEFS.map((d) => [d.type, d]));
 // ---------- literal formatting ----------
-export function fmtNum(n: any): string {
+export function fmtNum(n) {
   const v = Number(n);
   if (!Number.isFinite(v)) return '0';
   const s = Math.abs(v) >= 1e6 || (Math.abs(v) < 1e-4 && v !== 0) ? v.toExponential(3) : String(Math.round(v * 10000) / 10000);
   return v < 0 ? `(${s})` : s;
 }
-export function fmtColor(c: any): string {
+export function fmtColor(c) {
   if (!c) return 'null';
   const [r, g, b, a] = c;
   return a === 255 || a === undefined ? `[${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}]` : `[${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, ${Math.round(a)}]`;
 }
 /** an inline expression, parenthesised unless it is a single token/call */
-export function wrapExpr(s: string): string {
+export function wrapExpr(s) {
   const t = s.trim();
   if (!t) return '0';
   if (/^-?[\d.]+(e[+-]?\d+)?$/i.test(t) || /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/.test(t)) return t;
-  // single balanced call / array / object / paren group
+// single balanced call / array / object / paren group
   const m = /^([A-Za-z_$][\w$.]*)?([(\[{])/.exec(t);
   if (m) {
     const open = m[2], close = open === '(' ? ')' : open === '[' ? ']' : '}';
@@ -521,7 +510,7 @@ export function wrapExpr(s: string): string {
   }
   return `(${t})`;
 }
-export function fmtLiteral(type: string, v: any): string {
+export function fmtLiteral(type, v) {
   if (typeof v === 'string') {
     if (type === 'color') return v.includes(',') ? `[${v.trim()}]` : wrapExpr(v);
     return wrapExpr(v);

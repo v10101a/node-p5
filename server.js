@@ -3,6 +3,7 @@
 //   npm start      -> serves ./dist + Yjs relay
 import http from 'node:http';
 import fs from 'node:fs';
+import path from 'node:path';
 import { WebSocketServer } from 'ws';
 import * as Y from 'yjs';
 import * as syncProtocol from 'y-protocols/sync';
@@ -132,9 +133,14 @@ function onConnection(conn, roomName) {
 async function main() {
   let handler;
   if (PROD) {
-    const sirv = (await import('sirv')).default;
-    const serve = sirv('dist', { single: true, dev: false });
-    handler = (req, res) => serve(req, res, () => { res.statusCode = 404; res.end('not found'); });
+    const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
+    handler = (req, res) => {
+      const url = new URL(req.url, 'http://x');
+      let file = path.join('dist', path.normalize(decodeURIComponent(url.pathname)));
+      if (!file.startsWith('dist') || !fs.existsSync(file) || fs.statSync(file).isDirectory()) file = 'dist/index.html';
+      res.setHeader('content-type', MIME[path.extname(file)] || 'application/octet-stream');
+      fs.createReadStream(file).pipe(res);
+    };
   } else {
     const { createServer } = await import('vite');
     const vite = await createServer({ server: { middlewareMode: true, hmr: { port: PORT + 1 } }, appType: 'spa' });

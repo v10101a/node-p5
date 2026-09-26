@@ -4,11 +4,11 @@
  * Nodes whose compiled lines are unchanged in the edited text are kept as they are.
  */
 import * as acorn from 'acorn';
-import { compile, type CompileOutput } from './compile';
-import { DEFS } from './nodes/defs';
-import { getPortDefs, connectedInputs, VARIADIC_RE } from './nodes/ports';
-import { canConnect, type NodeData, type EdgeData, type PortType } from './types';
-import { estimateHeight, nodeWidth } from './canvas/layout';
+import { compile } from './compile.js';
+import { DEFS } from './nodes/defs.js';
+import { getPortDefs, connectedInputs, VARIADIC_RE } from './nodes/ports.js';
+import { canConnect } from './types.js';
+import { estimateHeight, nodeWidth } from './canvas/layout.js';
 
 export const STARTER_SKETCH = `var num;
 
@@ -28,41 +28,12 @@ function draw() {
 }
 `;
 
-type N = any;
 const HELPER_NAMES = new Set(['hsbColor', 'mixColors', 'waveform', 'formatValue']);
 const STYLE_FNS = new Set(['fill', 'noFill', 'stroke', 'noStroke', 'strokeWeight', 'textSize', 'textAlign', 'rectMode']);
-const norm = (s: string) => s.replace(/\s+/g, ' ').replace(/\s*([(){}[\],;])\s*/g, '$1').trim();
+const norm = (s) => s.replace(/\s+/g, ' ').replace(/\s*([(){}[\],;])\s*/g, '$1').trim();
 const uid = () => Math.random().toString(36).slice(2, 9);
-
-interface Ref { ref: string }
-type Val = number | string | Ref;
-type ColorVal = number[] | string | null | Ref;
-
-interface Style {
-  fill?: ColorVal; stroke?: ColorVal; weight?: Val; textSize?: Val; textAlign?: string; rectMode?: string;
-}
-interface Item {
-  type: string;
-  params: Record<string, any>;
-  children?: Item[];
-  matched?: NodeData;
-  id?: string;
-  name?: string;
-}
-interface ExprNode { name: string; expr: string; kind: string; matched?: NodeData; id?: string }
-
-export interface Plan {
-  keep: Set<string>;
-  upserts: NodeData[];
-  edges: EdgeData[];
-  remove: string[];
-  canvasParams: Record<string, any>;
-}
-
-interface Src { code: string }
-
 // ---------- expressions ----------
-function fold(n: N): number | undefined {
+function fold(n) {
   if (!n) return undefined;
   if (n.type === 'Literal' && typeof n.value === 'number') return n.value;
   if (n.type === 'UnaryExpression' && n.operator === '-') { const v = fold(n.argument); return v === undefined ? undefined : -v; }
@@ -77,19 +48,19 @@ function fold(n: N): number | undefined {
   }
   return undefined;
 }
-function argOf(n: N, s: Src): Val {
+function argOf(n, s) {
   if (!n) return 0;
   const f = fold(n);
   if (f !== undefined) return Number.isFinite(f) ? Math.round(f * 1e6) / 1e6 : 0;
   if (n.type === 'Identifier') return { ref: n.name };
   return s.code.slice(n.start, n.end);
 }
-function colorOf(args: N[], s: Src): ColorVal {
+function colorOf(args, s) {
   if (!args.length) return null;
   const nums = args.map(fold);
   const allNum = nums.every((v) => v !== undefined);
   if (allNum) {
-    const v = nums as number[];
+    const v = nums;
     if (args.length === 1) return [v[0], v[0], v[0], 255];
     if (args.length === 2) return [v[0], v[0], v[0], v[1]];
     if (args.length === 3) return [v[0], v[1], v[2], 255];
@@ -102,22 +73,22 @@ function colorOf(args: N[], s: Src): ColorVal {
       const h = a.value;
       return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16), 255];
     }
-    if (a.type === 'ArrayExpression' && a.elements.every((e: N) => fold(e) !== undefined)) {
-      const v = a.elements.map(fold) as number[];
+    if (a.type === 'ArrayExpression' && a.elements.every((e) => fold(e) !== undefined)) {
+      const v = a.elements.map(fold);
       return [v[0], v[1] ?? v[0], v[2] ?? v[0], v[3] ?? 255];
     }
   }
   return s.code.slice(args[0].start, args[args.length - 1].end);
 }
-function callOf(stmt: N): { name: string; args: N[] } | null {
+function callOf(stmt) {
   if (stmt?.type !== 'ExpressionStatement') return null;
   const e = stmt.expression;
   if (e?.type !== 'CallExpression' || e.callee.type !== 'Identifier') return null;
   return { name: e.callee.name, args: e.arguments };
 }
-function usesIdent(n: N, name: string): boolean {
+function usesIdent(n, name) {
   let found = false;
-  const walk = (x: N) => {
+  const walk = (x) => {
     if (found || !x || typeof x !== 'object') return;
     if (Array.isArray(x)) { x.forEach(walk); return; }
     if (x.type === 'Identifier' && x.name === name) { found = true; return; }
@@ -126,12 +97,11 @@ function usesIdent(n: N, name: string): boolean {
   walk(n);
   return found;
 }
-
 // ---------- statements → items ----------
 const P5_DEFAULT_FILL = [255, 255, 255, 255];
 const P5_DEFAULT_STROKE = [0, 0, 0, 255];
 
-function applyStyle(st: Style, c: { name: string; args: N[] }, s: Src): boolean {
+function applyStyle(st, c, s) {
   switch (c.name) {
     case 'fill': st.fill = colorOf(c.args, s); return true;
     case 'noFill': st.fill = null; return true;
@@ -144,8 +114,8 @@ function applyStyle(st: Style, c: { name: string; args: N[] }, s: Src): boolean 
   }
   return false;
 }
-function styleParams(st: Style, which: { fill?: boolean; stroke?: boolean }): Record<string, any> {
-  const p: Record<string, any> = {};
+function styleParams(st, which) {
+  const p = {};
   if (which.fill !== false) p.fill = st.fill === undefined ? P5_DEFAULT_FILL : st.fill;
   if (which.stroke !== false) {
     p.stroke = st.stroke === undefined ? P5_DEFAULT_STROKE : st.stroke;
@@ -154,9 +124,9 @@ function styleParams(st: Style, which: { fill?: boolean; stroke?: boolean }): Re
   return p;
 }
 
-function shapeItem(c: { name: string; args: N[] }, st: Style, s: Src): Item | null {
+function shapeItem(c, st, s) {
   const a = c.args;
-  const v = (i: number, d: Val = 0) => (a[i] ? argOf(a[i], s) : d);
+  const v = (i, d = 0) => (a[i] ? argOf(a[i], s) : d);
   switch (c.name) {
     case 'background': return { type: 'background', params: { color: colorOf(a, s) } };
     case 'rect':
@@ -173,15 +143,15 @@ function shapeItem(c: { name: string; args: N[] }, st: Style, s: Src): Item | nu
       return { type: 'line', params: { x1: v(0), y1: v(1), x2: v(2), y2: v(3), ...styleParams(st, { fill: false }) } };
     case 'text': {
       if (a.length < 3) return null;
-      let text = '', value: Val | undefined;
+      let text = '', value;
       const t = a[0];
-      const isFmt = (n: N) => n?.type === 'CallExpression' && n.callee.type === 'Identifier' && n.callee.name === 'formatValue' && n.arguments.length === 1;
+      const isFmt = (n) => n?.type === 'CallExpression' && n.callee.type === 'Identifier' && n.callee.name === 'formatValue' && n.arguments.length === 1;
       if (t.type === 'Literal' && typeof t.value === 'string') text = t.value;
       else if (isFmt(t)) value = argOf(t.arguments[0], s);
       else if (t.type === 'BinaryExpression' && t.operator === '+' && isFmt(t.right) && t.left.type === 'BinaryExpression' && t.left.operator === '+' && t.left.left.type === 'Literal' && typeof t.left.left.value === 'string') {
         text = t.left.left.value; value = argOf(t.right.arguments[0], s);
       } else return null;
-      const params: Record<string, any> = { text, x: v(1), y: v(2), size: st.textSize === undefined ? 12 : st.textSize, align: ['left', 'center', 'right'].includes(st.textAlign ?? '') ? st.textAlign : 'left', ...styleParams(st, { stroke: false }) };
+      const params = { text, x: v(1), y: v(2), size: st.textSize === undefined ? 12 : st.textSize, align: ['left', 'center', 'right'].includes(st.textAlign ?? '') ? st.textAlign : 'left', ...styleParams(st, { stroke: false }) };
       if (value !== undefined) params.value = value;
       return { type: 'text', params };
     }
@@ -192,7 +162,7 @@ function shapeItem(c: { name: string; args: N[] }, st: Style, s: Src): Item | nu
   return null;
 }
 
-function findPop(stmts: N[], i: number): number {
+function findPop(stmts, i) {
   let depth = 0;
   for (let j = i; j < stmts.length; j++) {
     const c = callOf(stmts[j]);
@@ -201,7 +171,7 @@ function findPop(stmts: N[], i: number): number {
   }
   return -1;
 }
-function isSimpleLoop(f: N): { v: string; count: N } | null {
+function isSimpleLoop(f) {
   if (f.type !== 'ForStatement' || !f.init || f.init.type !== 'VariableDeclaration' || f.init.declarations.length !== 1) return null;
   const d = f.init.declarations[0];
   if (d.id.type !== 'Identifier' || fold(d.init) !== 0) return null;
@@ -214,13 +184,13 @@ function isSimpleLoop(f: N): { v: string; count: N } | null {
   return { v, count: t.right };
 }
 
-function parseItems(stmts: N[], st: Style, s: Src): Item[] {
-  const items: Item[] = [];
-  let code: string[] = [];
-  let pendingStyle: string[] = [];
-  const text = (n: N) => s.code.slice(n.start, n.end);
+function parseItems(stmts, st, s) {
+  const items = [];
+  let code = [];
+  let pendingStyle = [];
+  const text = (n) => s.code.slice(n.start, n.end);
   const flush = () => { if (code.length) { items.push({ type: 'drawcode', params: { code: code.join('\n') } }); code = []; } };
-  const asCode = (t: string) => { code.push(...pendingStyle, t); pendingStyle = []; };
+  const asCode = (t) => { code.push(...pendingStyle, t); pendingStyle = []; };
 
   for (let i = 0; i < stmts.length; i++) {
     const stmt = stmts[i];
@@ -238,7 +208,7 @@ function parseItems(stmts: N[], st: Style, s: Src): Item[] {
       if (j > 0) {
         flush();
         const inner = stmts.slice(i + 1, j);
-        const params: Record<string, any> = { x: 0, y: 0, rotate: 0, scale: 1 };
+        const params = { x: 0, y: 0, rotate: 0, scale: 1 };
         let k = 0;
         while (k < inner.length) {
           const t = callOf(inner[k]);
@@ -260,10 +230,10 @@ function parseItems(stmts: N[], st: Style, s: Src): Item[] {
     }
     const loop = stmt.type === 'ForStatement' ? isSimpleLoop(stmt) : null;
     if (loop) {
-      const body: N[] = stmt.body.body.slice();
-      const params: Record<string, any> = { count: argOf(loop.count, s), x: 0, y: 0, rotate: 0, scale: 1, mode: 'linear' };
-      // trailing per-iteration steps
-      const steps: N[] = [];
+      const body = stmt.body.body.slice();
+      const params = { count: argOf(loop.count, s), x: 0, y: 0, rotate: 0, scale: 1, mode: 'linear' };
+// trailing per-iteration steps
+      const steps = [];
       while (body.length) {
         const t = callOf(body[body.length - 1]);
         if (t && (t.name === 'translate' || t.name === 'rotate' || t.name === 'scale')) steps.unshift(body.pop());
@@ -271,7 +241,7 @@ function parseItems(stmts: N[], st: Style, s: Src): Item[] {
       }
       const countSrc = norm(text(loop.count));
       for (const step of steps) {
-        const t = callOf(step)!;
+        const t = callOf(step);
         if (t.name === 'translate') { params.x = argOf(t.args[0], s); params.y = t.args[1] ? argOf(t.args[1], s) : 0; }
         else if (t.name === 'rotate') {
           const r = t.args[0];
@@ -299,20 +269,18 @@ function parseItems(stmts: N[], st: Style, s: Src): Item[] {
   if (pendingStyle.length) items.push({ type: 'drawcode', params: { code: pendingStyle.join('\n') } });
   return items;
 }
-
 // ---------- the plan ----------
-export function planFromCode(code: string, nodes: NodeData[], edges: EdgeData[]): Plan {
-  const comments: N[] = [];
-  const ast: N = acorn.parse(code, { ecmaVersion: 2022, sourceType: 'script', onComment: comments });
-  const s: Src = { code };
+export function planFromCode(code, nodes, edges) {
+  const comments = [];
+  const ast = acorn.parse(code, { ecmaVersion: 2022, sourceType: 'script', onComment: comments });
+  const s = { code };
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const canvas = nodes.find((n) => n.type === 'canvas');
   if (!canvas) throw new Error('no canvas node');
-  const compiled: CompileOutput = compile(nodes, edges, false);
-
-  // ---- split the program ----
-  let setupFn: N = null, drawFn: N = null;
-  const topLevel: N[] = [];
+  const compiled = compile(nodes, edges, false);
+// ---- split the program ----
+  let setupFn = null, drawFn = null;
+  const topLevel = [];
   for (const st of ast.body) {
     if (st.type === 'FunctionDeclaration' && st.id?.name === 'setup') setupFn = st;
     else if (st.type === 'FunctionDeclaration' && st.id?.name === 'draw') drawFn = st;
@@ -320,15 +288,14 @@ export function planFromCode(code: string, nodes: NodeData[], edges: EdgeData[])
     else topLevel.push(st);
   }
   if (!drawFn) throw new Error('no draw() function found');
-  const text = (n: N) => code.slice(n.start, n.end);
+  const text = (n) => code.slice(n.start, n.end);
   const globalsStmts = topLevel.map((n) => ({ n, norm: norm(text(n)), used: false }));
-  const setupStmts: { n: N; norm: string; used: boolean }[] = (setupFn?.body.body ?? []).map((n: N) => ({ n, norm: norm(text(n)), used: false }));
-  const drawStmts: { n: N; norm: string; used: boolean }[] = drawFn.body.body.map((n: N) => ({ n, norm: norm(text(n)), used: false }));
-
-  // ---- keep nodes whose compiled lines survive unchanged ----
-  const keep = new Set<string>();
-  const drawChildren = (id: string): NodeData[] => {
-    const kids: { i: number; n: NodeData }[] = [];
+  const setupStmts = (setupFn?.body.body ?? []).map((n) => ({ n, norm: norm(text(n)), used: false }));
+  const drawStmts = drawFn.body.body.map((n) => ({ n, norm: norm(text(n)), used: false }));
+// ---- keep nodes whose compiled lines survive unchanged ----
+  const keep = new Set();
+  const drawChildren = (id) => {
+    const kids = [];
     for (const e of edges) {
       if (e.to?.node !== id || !e.from) continue;
       const m = VARIADIC_RE.exec(e.to.port);
@@ -355,34 +322,32 @@ export function planFromCode(code: string, nodes: NodeData[], edges: EdgeData[])
       keep.add(n.id);
       for (const g of seg.globals) { const hit = globalsStmts.find((x) => !x.used && x.norm === norm(g)); if (hit) hit.used = true; }
       for (const g of seg.setup) { const hit = setupStmts.find((x) => !x.used && x.norm === norm(g)); if (hit) hit.used = true; }
-      // a kept render node keeps everything drawn into it
+// a kept render node keeps everything drawn into it
       const stack = [n.id];
-      while (stack.length) for (const k of drawChildren(stack.pop()!)) { if (!keep.has(k.id)) { keep.add(k.id); stack.push(k.id); } }
+      while (stack.length) for (const k of drawChildren(stack.pop())) { if (!keep.has(k.id)) { keep.add(k.id); stack.push(k.id); } }
       break;
     }
   }
-  // kept nodes' inputs come from other nodes: those must survive too (or the code would change)
-  // (they are matched by their own segments above; if a source vanished, its edge is dropped)
-
-  // ---- canvas params ----
-  const canvasParams: Record<string, any> = { ...canvas.params };
+// kept nodes' inputs come from other nodes: those must survive too (or the code would change)
+// (they are matched by their own segments above; if a source vanished, its edge is dropped)
+// ---- canvas params ----
+  const canvasParams = { ...canvas.params };
   let sawCreate = false;
   for (const st of setupStmts) {
     const c = callOf(st.n);
     if (c?.name === 'createCanvas' && !st.used) {
       st.used = true; sawCreate = true;
       const w = argOf(c.args[0], s), h = argOf(c.args[1], s);
-      canvasParams.width = typeof w === 'object' ? (w as Ref).ref : w;
-      canvasParams.height = typeof h === 'object' ? (h as Ref).ref : h;
+      canvasParams.width = typeof w === 'object' ? (w).ref : w;
+      canvasParams.height = typeof h === 'object' ? (h).ref : h;
     }
   }
   void sawCreate;
   canvasParams.setup = setupStmts.filter((x) => !x.used).map((x) => text(x.n)).join('\n');
   canvasParams.globals = globalsStmts.filter((x) => !x.used).map((x) => text(x.n)).join('\n');
-
-  // ---- remaining draw statements: expressions + drawing ----
-  const exprs: ExprNode[] = [];
-  const rest: N[] = [];
+// ---- remaining draw statements: expressions + drawing ----
+  const exprs = [];
+  const rest = [];
   for (const st of drawStmts) {
     if (st.used) continue;
     const n = st.n;
@@ -396,12 +361,11 @@ export function planFromCode(code: string, nodes: NodeData[], edges: EdgeData[])
     rest.push(n);
   }
   const items = parseItems(rest, {}, s);
-
-  // ---- identity: expressions by name, drawings by type order under the same parent ----
-  const survivors = new Set<string>(keep);
-  const takenNames = new Set<string>();
-  for (const id of keep) takenNames.add(byId.get(id)!.name);
-  const usedExisting = new Set<string>(keep);
+// ---- identity: expressions by name, drawings by type order under the same parent ----
+  const survivors = new Set(keep);
+  const takenNames = new Set();
+  for (const id of keep) takenNames.add(byId.get(id) .name);
+  const usedExisting = new Set(keep);
   for (const ex of exprs) {
     const existing = nodes.find((n) => n.name === ex.name && !usedExisting.has(n.id) && n.type !== 'canvas');
     if (existing) { ex.matched = existing; ex.id = existing.id; usedExisting.add(existing.id); survivors.add(existing.id); }
@@ -411,7 +375,7 @@ export function planFromCode(code: string, nodes: NodeData[], edges: EdgeData[])
     ex.name = nm;
     takenNames.add(nm);
   }
-  const matchItems = (list: Item[], pool: NodeData[]) => {
+  const matchItems = (list, pool) => {
     const avail = pool.filter((n) => !usedExisting.has(n.id));
     for (const it of list) {
       const idx = avail.findIndex((n) => n.type === it.type);
@@ -421,10 +385,10 @@ export function planFromCode(code: string, nodes: NodeData[], edges: EdgeData[])
     }
   };
   matchItems(items, drawChildren(canvas.id));
-  const walkItems = (list: Item[], f: (it: Item, parent: Item | null, depth: number) => void, parent: Item | null = null, depth = 1) => {
+  const walkItems = (list, f, parent = null, depth = 1) => {
     for (const it of list) { f(it, parent, depth); if (it.children) walkItems(it.children, f, it, depth + 1); }
   };
-  const nameFor = (type: string) => {
+  const nameFor = (type) => {
     const base = type === 'drawcode' ? 'block' : type;
     let nm = base, k = 2;
     const makesVar = DEFS[type]?.outputs.some((o) => o.type !== 'draw');
@@ -433,47 +397,45 @@ export function planFromCode(code: string, nodes: NodeData[], edges: EdgeData[])
     return nm;
   };
   walkItems(items, (it) => { it.name = it.matched ? it.matched.name : nameFor(it.type); });
-
-  // ---- resolve identifier references to wires ----
-  const varMap: Record<string, { node: string; port: string; type: PortType }> = {};
+// ---- resolve identifier references to wires ----
+  const varMap = {};
   for (const [v, ref] of Object.entries(compiled.vars)) {
     if (!survivors.has(ref.node) || !keep.has(ref.node)) continue;
-    const n = byId.get(ref.node)!;
+    const n = byId.get(ref.node);
     const t = getPortDefs(n).outputs.find((o) => o.name === ref.port)?.type;
     if (t) varMap[v] = { ...ref, type: t };
   }
-  for (const ex of exprs) varMap[ex.name] = { node: ex.id!, port: 'out', type: ex.kind as PortType };
+  for (const ex of exprs) varMap[ex.name] = { node: ex.id, port: 'out', type: ex.kind             };
 
-  const newEdges: EdgeData[] = [];
-  const consumersOf = new Map<string, number>(); // expr node id → max depth of consumer
-  const resolveParams = (it: Item, depth: number) => {
+  const newEdges = [];
+  const consumersOf = new Map(); // expr node id → max depth of consumer
+  const resolveParams = (it, depth) => {
     const def = DEFS[it.type];
-    const inputs = def ? getPortDefs({ id: it.id!, type: it.type, name: '', x: 0, y: 0, params: {} }).inputs : [];
+    const inputs = def ? getPortDefs({ id: it.id, type: it.type, name: '', x: 0, y: 0, params: {} }).inputs : [];
     for (const [k, v] of Object.entries(it.params)) {
       if (!v || typeof v !== 'object' || !('ref' in v)) continue;
-      const ref = (v as Ref).ref;
+      const ref = (v).ref;
       const port = inputs.find((p) => p.name === k);
       const target = varMap[ref];
       if (port && target && canConnect(target.type, port.type)) {
-        newEdges.push({ id: uid(), from: { node: target.node, port: target.port }, to: { node: it.id!, port: k } });
+        newEdges.push({ id: uid(), from: { node: target.node, port: target.port }, to: { node: it.id, port: k } });
         delete it.params[k];
         consumersOf.set(target.node, Math.max(consumersOf.get(target.node) ?? 0, depth));
       } else it.params[k] = ref; // plain expression text
     }
   };
   walkItems(items, (it, _p, depth) => resolveParams(it, depth));
-  // draw edges
-  const drawEdges = (parentId: string, list: Item[]) => {
-    list.forEach((it, i) => { newEdges.push({ id: uid(), from: { node: it.id!, port: 'out' }, to: { node: parentId, port: `draw${i}` } }); if (it.children) drawEdges(it.id!, it.children); });
+// draw edges
+  const drawEdges = (parentId, list) => {
+    list.forEach((it, i) => { newEdges.push({ id: uid(), from: { node: it.id, port: 'out' }, to: { node: parentId, port: `draw${i}` } }); if (it.children) drawEdges(it.id, it.children); });
   };
   drawEdges(canvas.id, items);
-
-  // ---- build node records ----
-  const upserts: NodeData[] = [];
-  const placed: NodeData[] = nodes.filter((n) => survivors.has(n.id) || n.type === 'canvas');
-  const colX = (depth: number) => canvas.x - 290 * depth;
-  const colY: Record<number, number> = {};
-  const nextY = (depth: number, h: number) => {
+// ---- build node records ----
+  const upserts = [];
+  const placed = nodes.filter((n) => survivors.has(n.id) || n.type === 'canvas');
+  const colX = (depth) => canvas.x - 290 * depth;
+  const colY = {};
+  const nextY = (depth, h) => {
     if (colY[depth] === undefined) {
       let y = canvas.y;
       for (const n of placed) if (Math.abs(n.x - colX(depth)) < 150) y = Math.max(y, n.y + estimateHeight(n, edges) + 24);
@@ -484,23 +446,22 @@ export function planFromCode(code: string, nodes: NodeData[], edges: EdgeData[])
     return y;
   };
   walkItems(items, (it, _p, depth) => {
-    const rec: NodeData = { id: it.id!, type: it.type, name: it.name!, x: 0, y: 0, params: it.params };
+    const rec = { id: it.id, type: it.type, name: it.name, x: 0, y: 0, params: it.params };
     if (it.matched) { rec.x = it.matched.x; rec.y = it.matched.y; if (it.matched.ports) rec.ports = it.matched.ports; }
     else { rec.x = colX(depth); rec.y = nextY(depth, estimateHeight(rec, [])); placed.push(rec); }
     upserts.push(rec);
   });
   for (const ex of exprs) {
-    const rec: NodeData = { id: ex.id!, type: 'expr', name: ex.name, x: 0, y: 0, params: { expr: ex.expr, kind: ex.kind }, ports: { inputs: [], outputs: [{ name: 'out', type: ex.kind as PortType }] } };
+    const rec = { id: ex.id, type: 'expr', name: ex.name, x: 0, y: 0, params: { expr: ex.expr, kind: ex.kind }, ports: { inputs: [], outputs: [{ name: 'out', type: ex.kind             }] } };
     if (ex.matched) { rec.x = ex.matched.x; rec.y = ex.matched.y; }
-    else { const depth = (consumersOf.get(ex.id!) ?? 0) + 1; rec.x = colX(depth); rec.y = nextY(depth, estimateHeight(rec, [])); placed.push(rec); }
+    else { const depth = (consumersOf.get(ex.id) ?? 0) + 1; rec.x = colX(depth); rec.y = nextY(depth, estimateHeight(rec, [])); placed.push(rec); }
     upserts.push(rec);
   }
   const upsertIds = new Set(upserts.map((u) => u.id));
   const finalIds = new Set([...keep, ...upsertIds, canvas.id]);
   const remove = nodes.filter((n) => !finalIds.has(n.id)).map((n) => n.id);
-
-  // kept nodes keep their incoming wires; loose wires survive if their ends do
-  const edgesOut: EdgeData[] = [];
+// kept nodes keep their incoming wires; loose wires survive if their ends do
+  const edgesOut = [];
   for (const e of edges) {
     const fromOk = !e.from || finalIds.has(e.from.node);
     const toOk = !e.to || finalIds.has(e.to.node);

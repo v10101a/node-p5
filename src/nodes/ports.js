@@ -1,12 +1,11 @@
-import type { NodeData, PortDef, EdgeData } from '../types';
-import { DEFS } from './defs';
+import { DEFS } from './defs.js';
 
-export function getDef(node: NodeData) {
+export function getDef(node) {
   return DEFS[node.type];
 }
 
 /** Unexpanded port defs, with custom-node ports merged in. */
-export function getPortDefs(node: NodeData): { inputs: PortDef[]; outputs: PortDef[] } {
+export function getPortDefs(node) {
   const def = DEFS[node.type];
   if (!def) return { inputs: [], outputs: [] };
   if (node.ports) return { inputs: [...def.inputs, ...node.ports.inputs], outputs: [...def.outputs, ...node.ports.outputs] };
@@ -16,9 +15,9 @@ export function getPortDefs(node: NodeData): { inputs: PortDef[]; outputs: PortD
 export const VARIADIC_RE = /^(.*?)(\d+)$/;
 
 /** Ports on the input side with variadic ports expanded to name0..nameN (+ one empty slot). */
-export function expandInputs(node: NodeData, connected: Set<string>): PortDef[] {
+export function expandInputs(node, connected) {
   const { inputs } = getPortDefs(node);
-  const res: PortDef[] = [];
+  const res = [];
   for (const p of inputs) {
     if (!p.variadic) { res.push(p); continue; }
     let max = -1;
@@ -32,21 +31,21 @@ export function expandInputs(node: NodeData, connected: Set<string>): PortDef[] 
   return res;
 }
 
-export function connectedInputs(nodeId: string, edges: EdgeData[]): Set<string> {
-  const s = new Set<string>();
+export function connectedInputs(nodeId, edges) {
+  const s = new Set();
   for (const e of edges) if (e.to?.node === nodeId && e.from) s.add(e.to.port);
   return s;
 }
 
-export function findInput(node: NodeData, port: string, connected: Set<string>): PortDef | undefined {
+export function findInput(node, port, connected) {
   return expandInputs(node, connected).find((p) => p.name === port);
 }
-export function findOutput(node: NodeData, port: string): PortDef | undefined {
+export function findOutput(node, port) {
   return getPortDefs(node).outputs.find((p) => p.name === port);
 }
 
 /** inline value for an input (param or default) */
-export function inputValue(node: NodeData, p: PortDef): any {
+export function inputValue(node, p) {
   const v = node.params?.[p.name];
   return v === undefined ? p.default : v;
 }

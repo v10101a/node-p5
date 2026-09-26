@@ -1,21 +1,5 @@
-import type { NodeData, EdgeData, CompileCtx, CompileResult, PortType } from './types';
-import { DEFS, HELPERS, fmtLiteral } from './nodes/defs';
-import { expandInputs, getPortDefs, connectedInputs, inputValue } from './nodes/ports';
-
-export interface Segment { globals: string[]; setup: string[]; body: string[] }
-
-export interface CompileOutput {
-  code: string;
-  errors: string[];
-  /** live-mode probes: key `${nodeId}|${port}` */
-  probeKeys: string[];
-  /** variable name → the output it holds */
-  vars: Record<string, { node: string; port: string }>;
-  /** per node: the exact lines it contributed (used to recognise unchanged nodes when code is edited) */
-  segments: Record<string, Segment>;
-  /** node id → base variable name */
-  nodeVar: Record<string, string>;
-}
+import { DEFS, HELPERS, fmtLiteral } from './nodes/defs.js';
+import { expandInputs, getPortDefs, connectedInputs, inputValue } from './nodes/ports.js';
 
 const RESERVED = new Set(
   `break case catch class const continue debugger default delete do else enum export extends false finally for function if import in instanceof new null return super switch this throw true try typeof var void while with yield let static await async of
@@ -25,71 +9,69 @@ const RESERVED = new Set(
   TWO_PI PI HALF_PI CENTER CORNER CLOSE LEFT RIGHT BASELINE RGB HSB`.split(/\s+/),
 );
 
-const PURE: PortType[] = ['number', 'boolean', 'trigger', 'color', 'vector'];
+const PURE = ['number', 'boolean', 'trigger', 'color', 'vector'];
 
-export const isReservedName = (name: string) => RESERVED.has(name);
+export const isReservedName = (name) => RESERVED.has(name);
 
-function ident(name: string, extraReserved: Set<string>): string {
+function ident(name, extraReserved) {
   let s = name.replace(/[^A-Za-z0-9_$]+/g, '_').replace(/^_+|_+$/g, '');
   if (!s || /^[0-9]/.test(s)) s = 'n' + s;
   if (RESERVED.has(s) || extraReserved.has(s)) s += '_';
   return s;
 }
 
-function deepEq(a: any, b: any): boolean {
+function deepEq(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /** names declared in the user's globals block, so node variables never shadow them */
-function declaredNames(src: string): Set<string> {
-  const out = new Set<string>();
+function declaredNames(src) {
+  const out = new Set();
   const re = /\b(?:var|let|const|function)\s+([A-Za-z_$][\w$]*)/g;
-  let m: RegExpExecArray | null;
+  let m;
   while ((m = re.exec(src))) out.add(m[1]);
   return out;
 }
 
-export function compile(nodes: NodeData[], edgesIn: EdgeData[], live: boolean): CompileOutput {
-  const errors: string[] = [];
+export function compile(nodes, edgesIn, live) {
+  const errors = [];
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const canvas = nodes.find((n) => n.type === 'canvas');
   const globalsText = String(canvas?.params?.globals ?? '').trim();
   const setupText = String(canvas?.params?.setup ?? '').trim();
   const extraReserved = declaredNames(globalsText + '\n' + setupText);
-
-  // valid, fully connected edges only; one incoming per input port
-  const incoming = new Map<string, Map<string, { node: string; port: string }>>();
-  const outDeg = new Map<string, Set<string>>();
-  const validEdges: EdgeData[] = [];
+// valid, fully connected edges only; one incoming per input port
+  const incoming = new Map();
+  const outDeg = new Map();
+  const validEdges = [];
   for (const e of edgesIn) {
     if (!e.from || !e.to) continue;
     const a = byId.get(e.from.node), b = byId.get(e.to.node);
     if (!a || !b || !DEFS[a.type] || !DEFS[b.type]) continue;
-    if (!getPortDefs(a).outputs.some((p) => p.name === e.from!.port)) continue;
+    if (!getPortDefs(a).outputs.some((p) => p.name === e.from .port)) continue;
     validEdges.push(e);
   }
-  const usedOutputs = new Map<string, Set<string>>();
+  const usedOutputs = new Map();
   for (const e of validEdges) {
-    let u = usedOutputs.get(e.from!.node);
-    if (!u) usedOutputs.set(e.from!.node, (u = new Set()));
-    u.add(e.from!.port);
-    let m = incoming.get(e.to!.node);
-    if (!m) incoming.set(e.to!.node, (m = new Map()));
-    m.set(e.to!.port, e.from!);
-    let s = outDeg.get(e.from!.node);
-    if (!s) outDeg.set(e.from!.node, (s = new Set()));
-    s.add(e.to!.node);
+    let u = usedOutputs.get(e.from .node);
+    if (!u) usedOutputs.set(e.from .node, (u = new Set()));
+    u.add(e.from .port);
+    let m = incoming.get(e.to .node);
+    if (!m) incoming.set(e.to .node, (m = new Map()));
+    m.set(e.to .port, e.from);
+    let s = outDeg.get(e.from .node);
+    if (!s) outDeg.set(e.from .node, (s = new Set()));
+    s.add(e.to .node);
   }
-
-  // topological order (Kahn), canvas last among ties
-  const indeg = new Map<string, number>();
+// topological order (Kahn), canvas last among ties
+  const indeg = new Map();
   for (const n of nodes) indeg.set(n.id, 0);
   for (const [to, m] of incoming) indeg.set(to, new Set([...m.values()].map((f) => f.node)).size);
   const queue = nodes.filter((n) => (indeg.get(n.id) ?? 0) === 0).map((n) => n.id);
-  const order: string[] = [];
-  const seen = new Set<string>();
+  const order = [];
+  const seen = new Set();
   while (queue.length) {
-    const id = queue.shift()!;
+    const id = queue.shift();
     if (seen.has(id)) continue;
     seen.add(id);
     order.push(id);
@@ -100,12 +82,11 @@ export function compile(nodes: NodeData[], edgesIn: EdgeData[], live: boolean): 
   }
   if (order.length < nodes.length) errors.push('Cycle detected: some nodes were skipped.');
   if (canvas && order.includes(canvas.id)) { order.splice(order.indexOf(canvas.id), 1); order.push(canvas.id); }
-
-  // variable names
-  const varOf = new Map<string, string>();
-  const used = new Set<string>();
+// variable names
+  const varOf = new Map();
+  const used = new Set();
   for (const id of order) {
-    const n = byId.get(id)!;
+    const n = byId.get(id);
     const base = ident(n.name || n.type, extraReserved);
     let name = base, k = 2;
     while (used.has(name)) name = `${base}${k++}`;
@@ -113,33 +94,33 @@ export function compile(nodes: NodeData[], edgesIn: EdgeData[], live: boolean): 
     varOf.set(id, name);
   }
 
-  const globals: string[] = [];
-  const setup: string[] = [];
-  const helpers = new Set<string>();
-  const body: string[] = [];
-  const drawFns = new Map<string, (T: string) => string[]>();
-  const probeKeys: string[] = [];
-  const probeVars: string[] = [];
-  const vars: CompileOutput['vars'] = {};
-  const segments: CompileOutput['segments'] = {};
+  const globals = [];
+  const setup = [];
+  const helpers = new Set();
+  const body = [];
+  const drawFns = new Map();
+  const probeKeys = [];
+  const probeVars = [];
+  const vars = {};
+  const segments = {};
 
   for (const id of order) {
-    const node = byId.get(id)!;
+    const node = byId.get(id);
     const def = DEFS[node.type];
     if (!def) { errors.push(`Unknown node type ${node.type}`); continue; }
     const conn = connectedInputs(id, validEdges);
     const inputs = expandInputs(node, conn);
     const outputs = getPortDefs(node).outputs;
     const inc = incoming.get(id) ?? new Map();
-    const name = varOf.get(id)!;
-    const seg: Segment = { globals: [], setup: [], body: [] };
+    const name = varOf.get(id);
+    const seg = { globals: [], setup: [], body: [] };
     segments[id] = seg;
-    const vname = (port?: string) => (outputs.length <= 1 || !port ? name : `${name}_${port}`);
+    const vname = (port) => (outputs.length <= 1 || !port ? name : `${name}_${port}`);
     for (const o of outputs) vars[vname(o.name)] = { node: id, port: o.name };
-    const srcVar = (src: { node: string; port: string }, inPortName: string) => {
-      const sn = byId.get(src.node)!;
+    const srcVar = (src, inPortName) => {
+      const sn = byId.get(src.node);
       const souts = getPortDefs(sn).outputs;
-      const sname = varOf.get(src.node)!;
+      const sname = varOf.get(src.node);
       const sport = souts.find((p) => p.name === src.port);
       const inPort = inputs.find((p) => p.name === inPortName);
       let expr = souts.length <= 1 ? sname : `${sname}_${src.port}`;
@@ -149,9 +130,9 @@ export function compile(nodes: NodeData[], edgesIn: EdgeData[], live: boolean): 
       }
       return expr;
     };
-    const portDef = (p: string) => inputs.find((x) => x.name === p);
+    const portDef = (p) => inputs.find((x) => x.name === p);
 
-    const ctx: CompileCtx = {
+    const ctx = {
       node,
       gid: name,
       live,
@@ -198,7 +179,7 @@ export function compile(nodes: NodeData[], edgesIn: EdgeData[], live: boolean): 
         return fn ? fn(T) : [];
       },
       drawInputs: (prefix, T) => {
-        const lines: string[] = [];
+        const lines = [];
         for (const p of inputs) {
           if (!p.name.startsWith(prefix) || p.type !== 'draw') continue;
           const src = inc.get(p.name);
@@ -213,14 +194,14 @@ export function compile(nodes: NodeData[], edgesIn: EdgeData[], live: boolean): 
       helper: (h) => helpers.add(h),
     };
 
-    let res: CompileResult;
+    let res;
     try {
       res = def.compile(ctx);
-    } catch (e: any) {
+    } catch (e) {
       errors.push(`${name}: ${e?.message ?? e}`);
       continue;
     }
-    const lines: string[] = [];
+    const lines = [];
     if (res.pre) lines.push(...res.pre);
     const usedO = usedOutputs.get(id);
     if (res.values) {
@@ -243,9 +224,9 @@ export function compile(nodes: NodeData[], edgesIn: EdgeData[], live: boolean): 
     }
   }
 
-  const indent = (ls: string[], pad = '  ') => ls.flatMap((l) => l.split('\n')).map((l) => (l ? pad + l : l));
+  const indent = (ls, pad = '  ') => ls.flatMap((l) => l.split('\n')).map((l) => (l ? pad + l : l));
 
-  const out: string[] = [];
+  const out = [];
   for (const h of helpers) out.push(HELPERS[h], '');
   if (globals.length) out.push(...globals, '');
   if (globalsText) out.push(globalsText, '');
@@ -262,15 +243,15 @@ export function compile(nodes: NodeData[], edgesIn: EdgeData[], live: boolean): 
     out.push('  });');
   }
   out.push('}');
-  const nodeVar: Record<string, string> = {};
+  const nodeVar = {};
   for (const [id, v] of varOf) nodeVar[id] = v;
   return { code: out.join('\n'), errors, probeKeys, vars, segments, nodeVar };
 }
 
 /** would connecting from -> to create a cycle? */
-export function createsCycle(edges: EdgeData[], fromNode: string, toNode: string): boolean {
+export function createsCycle(edges, fromNode, toNode) {
   if (fromNode === toNode) return true;
-  const adj = new Map<string, string[]>();
+  const adj = new Map();
   for (const e of edges) {
     if (!e.from || !e.to) continue;
     let a = adj.get(e.from.node);
@@ -278,9 +259,9 @@ export function createsCycle(edges: EdgeData[], fromNode: string, toNode: string
     a.push(e.to.node);
   }
   const stack = [toNode];
-  const seen = new Set<string>();
+  const seen = new Set();
   while (stack.length) {
-    const n = stack.pop()!;
+    const n = stack.pop();
     if (n === fromNode) return true;
     if (seen.has(n)) continue;
     seen.add(n);

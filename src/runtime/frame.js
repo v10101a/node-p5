@@ -1,5 +1,5 @@
 /** HTML for the sandboxed preview iframe. It loads p5 and hot-swaps setup/draw when new code arrives. */
-export function buildFrameHtml(p5Url: string): string {
+export function buildFrameHtml(p5Url) {
   return `<!doctype html>
 <html><head><meta charset="utf-8">
 <style>
@@ -25,7 +25,7 @@ export function buildFrameHtml(p5Url: string): string {
   function report(kind, e) {
     parent.postMessage({ type: 'error', kind: kind, message: String((e && e.message) || e) }, '*');
   }
-  // live-mode canvas: create once, then resize when the patch changes size
+// live-mode canvas: create once, then resize when the patch changes size
   window.__canvas = function (w, h) {
     if (!started || !window.width) return createCanvas(w, h);
     if (w !== width || h !== height) resizeCanvas(w, h);
